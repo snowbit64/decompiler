@@ -1,4 +1,4 @@
-name: Decompile ARM Libraries (v7 + aarch64)
+name: Decompile ARM Libraries (ARMv7 + AArch64)
 
 on:
   push:
@@ -15,15 +15,15 @@ jobs:
             processor: ARM:LE:32:v7
             lib: libgame-arm32.so
             output: output_v7
-            timeout: 3600
-            script: DecompileV7.java
+            analysis_timeout: 3600
+            decompile_timeout: 60
 
           - name: aarch64
             processor: AArch64:LE:64:v8A
             lib: libgame-arm64.so
             output: output_aarch64
-            timeout: 7200
-            script: Decompile64.java
+            analysis_timeout: 7200
+            decompile_timeout: 120
 
     steps:
       - name: Checkout Repository
@@ -35,15 +35,43 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Download and Install Ghidra
+      - name: Install Dependencies for Ghidra Native Build
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential gcc g++ make
+
+      - name: Download and Setup Ghidra 11.0.3
+        run: |
+          echo "📥 Baixando Ghidra 11.0.3..."
           wget -q https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip
           unzip -q ghidra_11.0.3_PUBLIC_20240410.zip
           
-          # Permissões necessárias
-          chmod +x ghidra_11.0.3_PUBLIC/support/analyzeHeadless
-          # O binário do decompilador nativo (caminho correto)
-          chmod +x ghidra_11.0.3_PUBLIC/Ghidra/Features/Decompiler/os/linux64/decompile
+          GHIDRA_DIR="ghidra_11.0.3_PUBLIC"
+          
+          # Permissões básicas
+          chmod +x "$GHIDRA_DIR/support/analyzeHeadless"
+          
+          # === CORREÇÃO DO DECOMPILADOR NATIVO ===
+          DECOMPILER="$GHIDRA_DIR/Ghidra/Features/Decompiler/os/linux64/decompile"
+          
+          if [ -f "$DECOMPILER" ]; then
+            chmod +x "$DECOMPILER"
+            echo "✅ Decompilador nativo encontrado e ativado."
+          else
+            echo "⚠️  Decompilador nativo não encontrado. Construindo agora..."
+            cd "$GHIDRA_DIR/support/gradle"
+            ./gradlew buildNatives --quiet
+            cd ../../..
+            
+            if [ -f "$DECOMPILER" ]; then
+              chmod +x "$DECOMPILER"
+              echo "✅ Decompilador nativo construído com sucesso!"
+            else
+              echo "❌ Falha ao construir o decompilador nativo!"
+              ls -la "$GHIDRA_DIR/Ghidra/Features/Decompiler/os/" || true
+              exit 1
+            fi
+          fi
 
       - name: Decompile ${{ matrix.arch.name }} Library
         run: |
@@ -53,16 +81,20 @@ jobs:
           
           mkdir -p "$OUTPUT_PATH"
           
-          echo "Iniciando decompilação para ${{ matrix.arch.name }}..."
+          echo "🚀 Iniciando decompilação para ${{ matrix.arch.name }}"
+          echo "   Library: $LIB_PATH"
+          echo "   Processor: ${{ matrix.arch.processor }}"
+          echo "   Timeout análise: ${{ matrix.arch.analysis_timeout }}s"
+          echo "   Timeout decompilação: ${{ matrix.arch.decompile_timeout }}s"
           
           "$GHIDRA_DIR/support/analyzeHeadless" \
             ./ghidra_project_\( {{ matrix.arch.name }} TempProj_ \){{ matrix.arch.name }} \
             -import "$LIB_PATH" \
             -processor ${{ matrix.arch.processor }} \
             -scriptPath ./scripts \
-            -postScript ${{ matrix.arch.script }} "$OUTPUT_PATH" \
+            -postScript ${{ matrix.arch.name == 'armv7' && 'DecompileV7.java' || 'Decompile64.java' }} "$OUTPUT_PATH" ${{ matrix.arch.decompile_timeout }} \
             -deleteProject \
-            -analysisTimeoutPerFile ${{ matrix.arch.timeout }}
+            -analysisTimeoutPerFile ${{ matrix.arch.analysis_timeout }}
 
       - name: Upload Pseudo-C Results (${{ matrix.arch.name }})
         uses: actions/upload-artifact@v4
@@ -70,3 +102,4 @@ jobs:
           name: pseudo-c-${{ matrix.arch.name }}
           path: ${{ matrix.arch.output }}/
           if-no-files-found: warn
+          compression-level: 6

@@ -1,0 +1,72 @@
+name: Decompile ARM Libraries (v7 + aarch64)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+          - name: armv7
+            processor: ARM:LE:32:v7
+            lib: libgame-arm32.so
+            output: output_v7
+            timeout: 3600
+            script: DecompileV7.java
+
+          - name: aarch64
+            processor: AArch64:LE:64:v8A
+            lib: libgame-arm64.so
+            output: output_aarch64
+            timeout: 7200
+            script: Decompile64.java
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Download and Install Ghidra
+        run: |
+          wget -q https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip
+          unzip -q ghidra_11.0.3_PUBLIC_20240410.zip
+          
+          # Permissões necessárias
+          chmod +x ghidra_11.0.3_PUBLIC/support/analyzeHeadless
+          # O binário do decompilador nativo (caminho correto)
+          chmod +x ghidra_11.0.3_PUBLIC/Ghidra/Features/Decompiler/os/linux64/decompile
+
+      - name: Decompile ${{ matrix.arch.name }} Library
+        run: |
+          GHIDRA_DIR="ghidra_11.0.3_PUBLIC"
+          LIB_PATH="./libs/${{ matrix.arch.lib }}"
+          OUTPUT_PATH="./${{ matrix.arch.output }}"
+          
+          mkdir -p "$OUTPUT_PATH"
+          
+          echo "Iniciando decompilação para ${{ matrix.arch.name }}..."
+          
+          "$GHIDRA_DIR/support/analyzeHeadless" \
+            ./ghidra_project_\( {{ matrix.arch.name }} TempProj_ \){{ matrix.arch.name }} \
+            -import "$LIB_PATH" \
+            -processor ${{ matrix.arch.processor }} \
+            -scriptPath ./scripts \
+            -postScript ${{ matrix.arch.script }} "$OUTPUT_PATH" \
+            -deleteProject \
+            -analysisTimeoutPerFile ${{ matrix.arch.timeout }}
+
+      - name: Upload Pseudo-C Results (${{ matrix.arch.name }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: pseudo-c-${{ matrix.arch.name }}
+          path: ${{ matrix.arch.output }}/
+          if-no-files-found: warn

@@ -1,0 +1,38 @@
+name: ARMv7 Decompiler Tool
+on: [push, workflow_dispatch]
+
+jobs:
+  extract_armv7:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install Ghidra
+        run: |
+          wget https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip
+          unzip ghidra_11.0.3_PUBLIC_20240410.zip
+          chmod +x ghidra_11.0.3_PUBLIC/support/analyzeHeadless
+
+      - name: Decompile Library
+        run: |
+          ./ghidra_11.0.3_PUBLIC/support/analyzeHeadless \
+          ./project_space TempProj \
+          -import ./libs/libgame-arm32.so \
+          -processor ARM:LE:32:v7 \
+          -scriptPath ./scripts \
+          -postScript DecompileV7.java ./output_v7 \
+          -deleteProject \
+          -analysisTimeoutPerFile 3600
+
+      - name: Archive Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: armv7-pseudo-c
+          path: output_v7/

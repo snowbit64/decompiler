@@ -18,16 +18,21 @@ jobs:
         run: |
           wget https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip
           unzip ghidra_11.0.3_PUBLIC_20240410.zip
+          # Permissões necessárias para execução headless
           chmod +x ghidra_11.0.3_PUBLIC/support/analyzeHeadless
+          chmod -R +x ghidra_11.0.3_PUBLIC/Ghidra/Features/Decompiler/os/linux64/
 
       - name: Decompile Library
         run: |
+          OUTPUT_PATH="./output_v7"
+          mkdir -p "$OUTPUT_PATH"
+          
           ./ghidra_11.0.3_PUBLIC/support/analyzeHeadless \
           ./project_space TempProj \
           -import ./libs/libgame-arm32.so \
           -processor ARM:LE:32:v7 \
           -scriptPath ./scripts \
-          -postScript DecompileV7.java ./output_v7 \
+          -postScript DecompileV7.java "$OUTPUT_PATH" \
           -deleteProject \
           -analysisTimeoutPerFile 3600
 
@@ -36,3 +41,4 @@ jobs:
         with:
           name: armv7-pseudo-c
           path: output_v7/
+          

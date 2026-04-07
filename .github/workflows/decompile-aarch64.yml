@@ -1,4 +1,3 @@
-
 name: AArch64 Decompiler Extraction
 on: 
   push:
@@ -20,25 +19,24 @@ jobs:
 
       - name: Install Ghidra
         run: |
-          # Baixa a versão estável mais recente
           wget https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.3_build/ghidra_11.0.3_PUBLIC_20240410.zip
           unzip ghidra_11.0.3_PUBLIC_20240410.zip
+          # Garante permissões de execução no script e no descompilador nativo
           chmod +x ghidra_11.0.3_PUBLIC/support/analyzeHeadless
+          chmod -R +x ghidra_11.0.3_PUBLIC/Ghidra/Features/Decompiler/os/linux64/
 
       - name: Execute Ghidra Headless Analysis
         run: |
-          # Defina o caminho da sua .so aqui
           LIB_PATH="./libs/libgame-arm64.so" 
           OUTPUT_PATH="./extracted_code"
-          
           mkdir -p $OUTPUT_PATH
           
           ./ghidra_11.0.3_PUBLIC/support/analyzeHeadless \
           ./ghidra_project_64 TempProj64 \
-          -import $LIB_PATH \
+          -import "$LIB_PATH" \
           -processor AArch64:LE:64:v8A \
           -scriptPath ./scripts \
-          -postScript Decompile64.java $OUTPUT_PATH \
+          -postScript Decompile64.java "$OUTPUT_PATH" \
           -deleteProject \
           -analysisTimeoutPerFile 7200
 

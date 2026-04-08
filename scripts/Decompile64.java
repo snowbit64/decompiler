@@ -1,6 +1,5 @@
 import java.io.File;
 import java.io.PrintWriter;
-import java.util.regex.Pattern;
 import ghidra.app.script.GhidraScript;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -10,6 +9,8 @@ import ghidra.program.model.listing.FunctionIterator;
 
 /**
  * Script de Decompilação para AArch64 (64-bit ARM)
+ * 
+ * Compatível com Ghidra 11.0.3
  * 
  * Características:
  * - Extrai pseudocódigo C de todas as funções
@@ -46,7 +47,7 @@ public class Decompile64 extends GhidraScript {
             sanitized = "function_unknown";
         }
         
-        // Limita comprimento (max 255 - extensão .c - hash)
+        // Limita comprimento
         if (sanitized.length() > 180) {
             sanitized = sanitized.substring(0, 180);
         }
@@ -61,7 +62,6 @@ public class Decompile64 extends GhidraScript {
         if (address == null || address.isEmpty()) {
             return "unknown_addr";
         }
-        // Remove ':' e outros caracteres especiais
         return address.replace(":", "").replace("-", "_").toLowerCase();
     }
 
@@ -69,18 +69,15 @@ public class Decompile64 extends GhidraScript {
     public void run() throws Exception {
         String[] args = getScriptArgs();
         if (args.length == 0) {
-            printerr("❌ Erro: Número incorreto de argumentos");
+            printerr("Erro: Número incorreto de argumentos");
             printerr("Uso: Decompile64 <outputDir> [timeoutSeconds]");
-            printerr("Exemplo: Decompile64 /tmp/output 120");
             return;
         }
 
         String outputDirPath = args[0];
         int timeoutSecs = (args.length > 1) ? Integer.parseInt(args[1]) : 120;
 
-        // Validar timeout
         if (timeoutSecs <= 0) {
-            printerr("⚠️  Aviso: timeout inválido, usando padrão de 120s");
             timeoutSecs = 120;
         }
 
@@ -89,12 +86,11 @@ public class Decompile64 extends GhidraScript {
             outputDir.mkdirs();
         }
 
-        println("╔════════════════════════════════════════════════════╗");
-        println("║  Decompilação AArch64 (64-bit) - Ghidra Script   ║");
-        println("╚════════════════════════════════════════════════════╝");
-        println("📁 Diretório de saída: " + outputDir.getAbsolutePath());
-        println("⏱️  Timeout por função: " + timeoutSecs + " segundos");
-        println("📊 Arquitetura: ARM64 Little Endian 64-bit (AArch64)");
+        println("================================================");
+        println("Decompilacao AArch64 (64-bit) - Ghidra 11.0.3");
+        println("================================================");
+        println("Diretorio de saida: " + outputDir.getAbsolutePath());
+        println("Timeout por funcao: " + timeoutSecs + " segundos");
         println("");
 
         DecompInterface iface = new DecompInterface();
@@ -111,24 +107,22 @@ public class Decompile64 extends GhidraScript {
             int processed = 0;
             int success = 0;
             int failed = 0;
-            int timeout = 0;
             long startTime = System.currentTimeMillis();
 
             while (iter.hasNext() && !monitor.isCancelled()) {
                 Function f = iter.next();
                 processed++;
 
-                // Pular thunks (são apenas intermediários)
+                // Pular thunks
                 if (f.isThunk()) continue;
 
-                // Monitoramento de progresso a cada 50 funções
+                // Monitoramento de progresso
                 if (processed % 50 == 0) {
-                    println(String.format("⏳ Processadas: %d funções | ✓ Sucesso: %d | ✗ Falhas: %d | ⏱️  Timeout: %d",
-                            processed, success, failed, timeout));
+                    println("Processadas: " + processed + " | Sucesso: " + success + " | Falhas: " + failed);
                 }
 
                 try {
-                    // Tentar decompilação com timeout
+                    // Tentar decompilação
                     DecompileResults res = iface.decompileFunction(f, timeoutSecs, monitor);
 
                     if (res != null && res.getDecompiledFunction() != null) {
@@ -141,41 +135,21 @@ public class Decompile64 extends GhidraScript {
                         File outFile = new File(outputDir, fileName);
 
                         try (PrintWriter pw = new PrintWriter(outFile)) {
-                            // Cabeçalho com metadados
-                            pw.println("// ============================================");
-                            pw.println("// GHIDRA DECOMPILER OUTPUT - AArch64 (64-bit)");
-                            pw.println("// ============================================");
-                            pw.println("// Function Name: " + f.getName());
+                            // Cabeçalho
+                            pw.println("// Ghidra Decompiler Output - AArch64 (64-bit)");
+                            pw.println("// Function: " + f.getName());
                             pw.println("// Entry Point: " + f.getEntryPoint());
-                            pw.println("// Address (hex): 0x" + address);
-                            pw.println("// Signature: " + f.getSignature());
                             pw.println("// Size: " + f.getBody().getNumAddresses() + " bytes");
-                            pw.println("// Is External: " + f.isExternal());
-                            pw.println("// Is Library: " + f.isLibraryFunction());
-                            pw.println("// Parameter Count: " + f.getParameterCount());
-                            pw.println("// ============================================");
+                            pw.println("// Signature: " + f.getSignature());
                             pw.println("");
                             pw.println(code);
                         }
                         success++;
                     } else {
-                        // Decompilação falhou ou timeout
-                        if (res != null && res.getDecompileStatus() != null) {
-                            if (res.getDecompileStatus().contains("timeout")) {
-                                timeout++;
-                                println("⏱️  TIMEOUT: " + f.getName() + " @ " + f.getEntryPoint());
-                            } else {
-                                failed++;
-                                println("❌ FALHA: " + f.getName() + " @ " + f.getEntryPoint());
-                            }
-                        } else {
-                            failed++;
-                            println("⚠️  Resultado nulo para: " + f.getName() + " @ " + f.getEntryPoint());
-                        }
+                        failed++;
                     }
                 } catch (Exception e) {
                     failed++;
-                    printerr("❌ Erro ao decompilar " + f.getName() + ": " + e.getMessage());
                 }
             }
 
@@ -183,18 +157,17 @@ public class Decompile64 extends GhidraScript {
             long durationSecs = (endTime - startTime) / 1000;
 
             println("");
-            println("╔════════════════════════════════════════════════════╗");
-            println("║             RELATÓRIO FINAL - AArch64             ║");
-            println("╚════════════════════════════════════════════════════╝");
-            println(String.format("✓ Funções processadas com sucesso: %d", success));
-            println(String.format("✗ Funções falhadas: %d", failed));
-            println(String.format("⏱️  Funções com timeout: %d", timeout));
-            println(String.format("📊 Total processado: %d funções", processed));
-            println(String.format("⏳ Tempo total: %d segundos", durationSecs));
-            println("✅ Extração AArch64 concluída!");
+            println("================================================");
+            println("Relatorio Final - AArch64");
+            println("================================================");
+            println("Funcoes processadas com sucesso: " + success);
+            println("Funcoes falhadas: " + failed);
+            println("Total processado: " + processed);
+            println("Tempo total: " + durationSecs + " segundos");
+            println("Extracao concluida!");
 
         } catch (Exception e) {
-            printerr("❌ Erro fatal na decompilação: " + e.getMessage());
+            printerr("Erro fatal: " + e.getMessage());
             e.printStackTrace();
         } finally {
             iface.dispose();

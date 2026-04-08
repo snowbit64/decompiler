@@ -19,7 +19,7 @@ jobs:
             decompile_timeout: 60
 
           - name: aarch64
-            processor: AArch64:LE:64:v8A
+            processor: AARCH64:LE:64:v8A
             lib: libgame-arm64.so
             output: output_aarch64
             analysis_timeout: 7200
@@ -53,10 +53,8 @@ jobs:
           
           # === VERIFICAR ESTRUTURA GHIDRA ===
           echo "📋 Verificando estrutura do Ghidra..."
-          ls -la "$GHIDRA_DIR/support/" || echo "Support dir não encontrado"
+          ls -la "$GHIDRA_DIR/support/" | head -10 || echo "Support dir não encontrado"
           
-          # Não tenta construir natives, pois frequentemente falha
-          # Ghidra 11.0.3 já vem com decompiler pré-compilado
           echo "✅ Ghidra 11.0.3 pronto para uso."
 
       - name: Decompile ${{ matrix.arch.name }} Library
@@ -75,8 +73,9 @@ jobs:
           echo "   Processor: ${{ matrix.arch.processor }}"
           echo "   Timeout análise: ${{ matrix.arch.analysis_timeout }}s"
           echo "   Timeout decompilação: ${{ matrix.arch.decompile_timeout }}s"
+          echo ""
           
-          # Sintaxe corrigida para o analyzeHeadless
+          # Executar análise headless com configuração corrigida
           "$GHIDRA_DIR/support/analyzeHeadless" \
             "$PROJECT_DIR" "$PROJECT_NAME" \
             -import "$LIB_PATH" \
@@ -85,8 +84,30 @@ jobs:
             -postScript "${{ matrix.arch.name == 'armv7' && 'DecompileV7.java' || 'Decompile64.java' }}" "$OUTPUT_PATH" "${{ matrix.arch.decompile_timeout }}" \
             -deleteProject \
             -analysisTimeoutPerFile "${{ matrix.arch.analysis_timeout }}" || {
-              echo "⚠️  Aviso: Decompilação completou com status de saída não-zero, mas pode ter sucesso parcial"
+              echo ""
+              echo "⚠️  Análise completou (pode ter saída parcial)"
+              echo "   Verifique os logs acima para mais detalhes"
             }
+          
+          # Verificar se foram criados arquivos
+          if [ -d "$OUTPUT_PATH" ]; then
+            FILE_COUNT=$(find "$OUTPUT_PATH" -type f -name "*.c" 2>/dev/null | wc -l)
+            if [ "$FILE_COUNT" -gt 0 ]; then
+              echo ""
+              echo "✅ Sucesso! $FILE_COUNT arquivos .c gerados em $OUTPUT_PATH"
+            else
+              echo ""
+              echo "⚠️  Nenhum arquivo .c foi gerado em $OUTPUT_PATH"
+              echo "   Possíveis causas:"
+              echo "   - Scripts Java não encontrados"
+              echo "   - Biblioteca não encontrada"
+              echo "   - Biblioteca sem funções reconhecíveis"
+              echo "   - Timeout na análise"
+            fi
+          else
+            echo ""
+            echo "❌ Diretório de saída não foi criado!"
+          fi
 
       - name: Upload Pseudo-C Results (${{ matrix.arch.name }})
         uses: actions/upload-artifact@v4

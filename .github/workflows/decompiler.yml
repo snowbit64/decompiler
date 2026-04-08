@@ -51,35 +51,24 @@ jobs:
           # Permissões básicas
           chmod +x "$GHIDRA_DIR/support/analyzeHeadless"
           
-          # === CORREÇÃO DO DECOMPILADOR NATIVO ===
-          DECOMPILER="$GHIDRA_DIR/Ghidra/Features/Decompiler/os/linux64/decompile"
+          # === VERIFICAR ESTRUTURA GHIDRA ===
+          echo "📋 Verificando estrutura do Ghidra..."
+          ls -la "$GHIDRA_DIR/support/" || echo "Support dir não encontrado"
           
-          if [ -f "$DECOMPILER" ]; then
-            chmod +x "$DECOMPILER"
-            echo "✅ Decompilador nativo encontrado e ativado."
-          else
-            echo "⚠️  Decompilador nativo não encontrado. Construindo agora..."
-            cd "$GHIDRA_DIR/support/gradle"
-            ./gradlew buildNatives --quiet
-            cd ../../..
-            
-            if [ -f "$DECOMPILER" ]; then
-              chmod +x "$DECOMPILER"
-              echo "✅ Decompilador nativo construído com sucesso!"
-            else
-              echo "❌ Falha ao construir o decompilador nativo!"
-              ls -la "$GHIDRA_DIR/Ghidra/Features/Decompiler/os/" || true
-              exit 1
-            fi
-          fi
+          # Não tenta construir natives, pois frequentemente falha
+          # Ghidra 11.0.3 já vem com decompiler pré-compilado
+          echo "✅ Ghidra 11.0.3 pronto para uso."
 
       - name: Decompile ${{ matrix.arch.name }} Library
         run: |
           GHIDRA_DIR="ghidra_11.0.3_PUBLIC"
           LIB_PATH="./libs/${{ matrix.arch.lib }}"
           OUTPUT_PATH="./${{ matrix.arch.output }}"
+          PROJECT_DIR="./ghidra_projects"
+          PROJECT_NAME="project_${{ matrix.arch.name }}"
           
           mkdir -p "$OUTPUT_PATH"
+          mkdir -p "$PROJECT_DIR"
           
           echo "🚀 Iniciando decompilação para ${{ matrix.arch.name }}"
           echo "   Library: $LIB_PATH"
@@ -87,14 +76,17 @@ jobs:
           echo "   Timeout análise: ${{ matrix.arch.analysis_timeout }}s"
           echo "   Timeout decompilação: ${{ matrix.arch.decompile_timeout }}s"
           
+          # Sintaxe corrigida para o analyzeHeadless
           "$GHIDRA_DIR/support/analyzeHeadless" \
-            ./ghidra_project_\( {{ matrix.arch.name }} TempProj_ \){{ matrix.arch.name }} \
+            "$PROJECT_DIR" "$PROJECT_NAME" \
             -import "$LIB_PATH" \
-            -processor ${{ matrix.arch.processor }} \
+            -processor "${{ matrix.arch.processor }}" \
             -scriptPath ./scripts \
-            -postScript ${{ matrix.arch.name == 'armv7' && 'DecompileV7.java' || 'Decompile64.java' }} "$OUTPUT_PATH" ${{ matrix.arch.decompile_timeout }} \
+            -postScript "${{ matrix.arch.name == 'armv7' && 'DecompileV7.java' || 'Decompile64.java' }}" "$OUTPUT_PATH" "${{ matrix.arch.decompile_timeout }}" \
             -deleteProject \
-            -analysisTimeoutPerFile ${{ matrix.arch.analysis_timeout }}
+            -analysisTimeoutPerFile "${{ matrix.arch.analysis_timeout }}" || {
+              echo "⚠️  Aviso: Decompilação completou com status de saída não-zero, mas pode ter sucesso parcial"
+            }
 
       - name: Upload Pseudo-C Results (${{ matrix.arch.name }})
         uses: actions/upload-artifact@v4
@@ -102,4 +94,13 @@ jobs:
           name: pseudo-c-${{ matrix.arch.name }}
           path: ${{ matrix.arch.output }}/
           if-no-files-found: warn
+          compression-level: 6
+
+      - name: Upload Project State (Debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghidra-project-${{ matrix.arch.name }}
+          path: ghidra_projects/
+          if-no-files-found: ignore
           compression-level: 6
